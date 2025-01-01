@@ -1,3 +1,5 @@
+// src/widgets/Pagination.jsx
+
 import React from "react";
 
 const Pagination = ({ currentPage, totalPages, onPrev, onNext, onJump }) => {
@@ -9,7 +11,9 @@ const Pagination = ({ currentPage, totalPages, onPrev, onNext, onJump }) => {
   const generatePagination = () => {
     if (totalPages <= MAX_VISIBLE_PAGES || isMobile) {
       // For mobile or small number of pages, show simplified pagination
-      return [1, currentPage, totalPages];
+      return [1, currentPage, totalPages].filter((page, index, self) => {
+        return page && self.indexOf(page) === index;
+      });
     }
 
     // For larger screens, show extended pagination
@@ -43,7 +47,7 @@ const Pagination = ({ currentPage, totalPages, onPrev, onNext, onJump }) => {
             <button
               className={`h-10 px-5 transition-colors duration-150 ${
                 currentPage <= 1
-                  ? "bg-gray-300 text-gray-500"
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-indigo-600 text-white hover:bg-indigo-700"
               } border border-r-0 border-indigo-600 rounded-l-lg`}
               onClick={onPrev}
@@ -78,7 +82,7 @@ const Pagination = ({ currentPage, totalPages, onPrev, onNext, onJump }) => {
             <button
               className={`h-10 px-5 transition-colors duration-150 ${
                 currentPage >= totalPages
-                  ? "bg-gray-300 text-gray-500"
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-indigo-600 text-white hover:bg-indigo-700"
               } border border-indigo-600 rounded-r-lg`}
               onClick={onNext}
