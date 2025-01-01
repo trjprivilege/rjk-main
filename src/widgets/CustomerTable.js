@@ -1,3 +1,5 @@
+// src/widgets/CustomerTable.jsx
+
 import React from "react";
 import ActionButtons from "./ActionButtons";
 
@@ -59,11 +61,11 @@ const CustomerTable = ({
                 point["CLAIMED POINTS"],
                 point["UNCLAIMED POINTS"],
                 point["LAST SALES DATE"],
-              ].map((value, index) => (
+              ].map((value, idx) => (
                 <td
-                  key={index}
+                  key={idx}
                   className={`px-4 py-2 ${
-                    index < 9 ? "border-r border-gray-200" : ""
+                    idx < 9 ? "border-r border-gray-200" : ""
                   }`}
                 >
                   {value || "0"}
