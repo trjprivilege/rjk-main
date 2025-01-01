@@ -15,8 +15,7 @@ import { supabase } from "./supabase";
 
 const ITEMS_PER_PAGE = 10;
 
-const Table = ({ pointsData, filter, isAdmin }) => {
-  const [points, setPoints] = useState([]);
+const Table = ({ filter, isAdmin }) => {
   const [filteredData, setFilteredData] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [paginatedData, setPaginatedData] = useState([]);
@@ -28,121 +27,114 @@ const Table = ({ pointsData, filter, isAdmin }) => {
   const [currentCustomer, setCurrentCustomer] = useState(null);
   const [alertMessage, setAlertMessage] = useState(null);
   const [alertType, setAlertType] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Handle setting points data on component mount
+  // Fetch data with filters and pagination
   useEffect(() => {
-    setPoints(pointsData);
-  }, [pointsData]);
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        let query = supabase
+          .from("points")
+          .select("*", { count: "exact" });
 
-  // Apply filters to the data
-  useEffect(() => {
-    let filtered = points;
-
-    // Apply filters based on the filter object
-    if (filter.customerCode) {
-      filtered = filtered.filter((point) =>
-        point["CUSTOMER CODE"]
-          .toString()
-          .toLowerCase()
-          .includes(filter.customerCode.toLowerCase())
-      );
-    }
-
-    if (filter.address1) {
-      filtered = filtered.filter((point) =>
-        point["ADDRESS1"]
-          .toString()
-          .toLowerCase()
-          .includes(filter.address1.toLowerCase())
-      );
-    }
-
-    // Add the rest of your filter logic here
-
-    setFilteredData(filtered);
-  }, [points, filter]);
-
-  // Handle pagination changes
-  useEffect(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = currentPage * ITEMS_PER_PAGE;
-    setPaginatedData(filteredData.slice(startIndex, endIndex));
-
-    // Reset the current page to 1 when the filtered data changes
-    if (
-      filteredData.length > 0 &&
-      currentPage > Math.ceil(filteredData.length / ITEMS_PER_PAGE)
-    ) {
-      setCurrentPage(1);
-    }
-  }, [currentPage, filteredData]);
-
-  // Handle real-time updates from Supabase
-  useEffect(() => {
-    const subscription = supabase
-      .channel("realtime-points")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "points" },
-        (payload) => {
-          const { eventType, new: newData, old: oldData } = payload;
-
-          if (eventType === "INSERT" || eventType === "UPDATE") {
-            setPoints((prevPoints) => {
-              const updatedPoints = prevPoints.filter(
-                (point) => point["CUSTOMER CODE"] !== newData["CUSTOMER CODE"]
-              );
-              return [...updatedPoints, newData];
-            });
-          } else if (eventType === "DELETE") {
-            setPoints((prevPoints) =>
-              prevPoints.filter(
-                (point) => point["CUSTOMER CODE"] !== oldData["CUSTOMER CODE"]
-              )
-            );
+        // Customer Code filter (handle as integer)
+        if (filter.customerCode) {
+          // Try to parse as integer first
+          const codeAsInt = parseInt(filter.customerCode);
+          if (!isNaN(codeAsInt)) {
+            query = query.eq("CUSTOMER CODE", codeAsInt);
+          } else {
+            // If not a valid integer, use string comparison
+            query = query.textSearch("CUSTOMER CODE", filter.customerCode.trim());
           }
         }
-      )
-      .subscribe();
 
-    return () => {
-      supabase.removeChannel(subscription); // Clean up on component unmount
+        // Text-based filters
+        if (filter.address1) {
+          query = query.ilike("ADDRESS1", `%${filter.address1.trim()}%`);
+        }
+
+        if (filter.mobileNumber) {
+          query = query.ilike("MOBILE", `%${filter.mobileNumber.trim()}%`);
+        }
+
+        // Numeric range filters
+        if (filter.totalPointsMin) {
+          query = query.gte("TOTAL POINTS", parseFloat(filter.totalPointsMin));
+        }
+        if (filter.totalPointsMax) {
+          query = query.lte("TOTAL POINTS", parseFloat(filter.totalPointsMax));
+        }
+        if (filter.unclaimedPointsMin) {
+          query = query.gte("UNCLAIMED POINTS", parseFloat(filter.unclaimedPointsMin));
+        }
+        if (filter.unclaimedPointsMax) {
+          query = query.lte("UNCLAIMED POINTS", parseFloat(filter.unclaimedPointsMax));
+        }
+
+        // Date range filters
+        if (filter.fromDate) {
+          query = query.gte("LAST SALES DATE", filter.fromDate);
+        }
+        if (filter.toDate) {
+          query = query.lte("LAST SALES DATE", filter.toDate);
+        }
+
+        // Sorting
+        const sortColumn = filter.sortBy || "CUSTOMER CODE";
+        const sortOrder = filter.sortOrder || "asc";
+        query = query.order(sortColumn, { ascending: sortOrder === "ASC" });
+
+        // Apply pagination
+        const start = (currentPage - 1) * ITEMS_PER_PAGE;
+        const end = start + ITEMS_PER_PAGE - 1;
+        query = query.range(start, end);
+
+        const { data, error, count } = await query;
+
+        if (error) throw error;
+
+        setFilteredData(data || []);
+        setPaginatedData(data || []);
+        setTotalCount(count || 0);
+      } catch (error) {
+        console.error("Error fetching data:", error.message);
+        handleAlert("Error fetching data. Please try again.", "error");
+      } finally {
+        setIsLoading(false);
+      }
     };
-  }, []);
+
+    fetchData();
+  }, [filter, currentPage]);
 
   // Pagination handlers
   const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
+    setCurrentPage((prev) => Math.max(1, prev - 1));
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    } else {
-      // Reset to page 1 if the current page exceeds the total pages
-      setCurrentPage(1);
-    }
+    const maxPage = Math.ceil(totalCount / ITEMS_PER_PAGE);
+    setCurrentPage((prev) => Math.min(maxPage, prev + 1));
   };
 
   const handleJumpToPage = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    } else {
-      // Reset to page 1 if the requested page is out of range
-      setCurrentPage(1);
-    }
+    const maxPage = Math.ceil(totalCount / ITEMS_PER_PAGE);
+    setCurrentPage(Math.min(Math.max(1, page), maxPage));
   };
-
-  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
 
   // Alert handler
   const handleAlert = (message, type) => {
     setAlertMessage(message);
     setAlertType(type);
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setAlertMessage(null);
+      setAlertType(null);
+    }, 5000);
   };
-
   // PDF download handler
   const handleDownloadClick = () => {
     const doc = new jsPDF();
@@ -182,22 +174,12 @@ const Table = ({ pointsData, filter, isAdmin }) => {
 
   // Data update handler
   const handleDataUpdate = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("points")
-        .select("*")
-        .order("CUSTOMER CODE", { ascending: true });
-
-      if (error) {
-        throw error;
-      }
-
-      setPoints(data);
-    } catch (error) {
-      console.error("Error fetching updated data:", error.message);
-    }
+    setCurrentPage(1); // Reset to first page
+    // Trigger a refetch by updating a dependency
+    setFilteredData([]); 
   };
 
+  // CRUD Operations
   const handleDelete = async (customerCode) => {
     try {
       const { error } = await supabase
@@ -205,16 +187,13 @@ const Table = ({ pointsData, filter, isAdmin }) => {
         .delete()
         .eq("CUSTOMER CODE", customerCode);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      setPoints((prevPoints) =>
-        prevPoints.filter((point) => point["CUSTOMER CODE"] !== customerCode)
-      );
+      handleAlert("Customer deleted successfully", "success");
+      handleDataUpdate();
     } catch (error) {
-      handleAlert("Error deleting customer.", "error");
-      console.error("Error deleting customer:", error.message);
+      handleAlert("Error deleting customer", "error");
+      console.error("Error:", error);
     }
   };
 
@@ -224,28 +203,21 @@ const Table = ({ pointsData, filter, isAdmin }) => {
         .from("points")
         .update({
           "CLAIMED POINTS": updatedCustomer["CLAIMED POINTS"],
-          "UNCLAIMED POINTS": updatedCustomer["UNCLAIMED POINTS"],
+          "UNCLAIMED POINTS": updatedCustomer["UNCLAIMED POINTS"]
         })
         .eq("CUSTOMER CODE", updatedCustomer["CUSTOMER CODE"]);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      setPoints((prevPoints) =>
-        prevPoints.map((point) =>
-          point["CUSTOMER CODE"] === updatedCustomer["CUSTOMER CODE"]
-            ? updatedCustomer
-            : point
-        )
-      );
+      handleAlert("Points claimed successfully", "success");
+      handleDataUpdate();
     } catch (error) {
-      handleAlert("Error claiming points.", "error");
-      console.error("Error claiming points:", error.message);
+      handleAlert("Error claiming points", "error");
+      console.error("Error:", error);
     }
   };
 
-  // Dialog handler functions
+  // Dialog handlers
   const handleEditDialog = (customer) => {
     setCurrentCustomer(customer);
     setIsEditDialogOpen(true);
@@ -269,25 +241,25 @@ const Table = ({ pointsData, filter, isAdmin }) => {
   return (
     <div className="min-h-screen">
       <Alerts alertMessage={alertMessage} alertType={alertType} />
-      <div className="flex  space-x-4 mb-4">
+      
+      <div className="flex flex-wrap gap-4 mb-4">
         <DownloadButton
-          pointsData={filteredData}
+          pointsData={paginatedData}
           onDownload={handleDownloadClick}
+          disabled={isLoading}
         />
 
         {isAdmin && (
           <>
             <CSVUpload
-              onUploadSuccess={(newData) => {
-                setPoints((prev) => [...prev, ...newData]);
-              }}
+              onUploadSuccess={handleDataUpdate}
               onAlert={handleAlert}
+              disabled={isLoading}
             />
-
-            {/* Button to open the Edit User Dialog */}
             <button
               onClick={() => setIsEditUserDialogOpen(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+              disabled={isLoading}
             >
               Edit Users
             </button>
@@ -295,23 +267,38 @@ const Table = ({ pointsData, filter, isAdmin }) => {
         )}
       </div>
 
-      <CustomerTable
-        pointsData={paginatedData}
-        isAdmin={isAdmin}
-        onEdit={isAdmin ? handleEditDialog : undefined}
-        onDelete={isAdmin ? handleDeleteDialog : undefined}
-        onClaim={isAdmin ? handleClaimDialog : undefined}
-        onAddGrams={isAdmin ? handleAddGramsDialog : undefined}
-      />
+      {isLoading ? (
+        <div className="flex justify-center items-center h-48">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      ) : (
+        <>
+          <CustomerTable
+            pointsData={paginatedData}
+            isAdmin={isAdmin}
+            onEdit={isAdmin ? handleEditDialog : undefined}
+            onDelete={isAdmin ? handleDeleteDialog : undefined}
+            onClaim={isAdmin ? handleClaimDialog : undefined}
+            onAddGrams={isAdmin ? handleAddGramsDialog : undefined}
+          />
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPrev={handlePrevPage}
-        onNext={handleNextPage}
-        onJump={handleJumpToPage}
-      />
+          <div className="mt-4 flex justify-between items-center">
+            <div className="text-sm text-gray-600">
+              Total Records: {totalCount}
+            </div>
+            
+            <Pagination
+              currentPage={currentPage}
+              totalPages={Math.ceil(totalCount / ITEMS_PER_PAGE)}
+              onPrev={handlePrevPage}
+              onNext={handleNextPage}
+              onJump={handleJumpToPage}
+            />
+          </div>
+        </>
+      )}
 
+      {/* Dialogs */}
       <DeleteDialog
         isOpen={isDeleteDialogOpen}
         onClose={() => setIsDeleteDialogOpen(false)}
@@ -345,7 +332,6 @@ const Table = ({ pointsData, filter, isAdmin }) => {
         onDataUpdate={handleDataUpdate}
       />
 
-      {/* Edit User Dialog */}
       {isAdmin && (
         <EditUserDialog
           isOpen={isEditUserDialogOpen}
