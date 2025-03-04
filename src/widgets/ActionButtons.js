@@ -7,6 +7,7 @@ const ActionButtons = ({ point, onEdit, onDelete, onClaim, onAddGrams }) => {
     return <td className="px-4 py-2">Invalid Data</td>; // Handle invalid data cases
   }
 
+  
   return (
     <td className="px-6 py-2 flex flex-wrap gap-2 justify-between">
       {point["UNCLAIMED POINTS"] > 0 && (
